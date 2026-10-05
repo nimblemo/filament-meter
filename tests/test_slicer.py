@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +17,7 @@ from filament_meter.slicer import (
     resolve_profiles,
     run_slice,
     short_reason,
+    subprocess_hide_kwargs,
 )
 
 
@@ -169,3 +172,38 @@ def test_short_reason_extracts_message() -> None:
 
 def test_short_reason_default() -> None:
     assert short_reason("nothing useful here") == "see log"
+
+
+def test_subprocess_hide_kwargs_matches_platform() -> None:
+    kwargs = subprocess_hide_kwargs()
+    if os.name == "nt":
+        assert "creationflags" in kwargs
+        assert "startupinfo" in kwargs
+    else:
+        assert kwargs == {}
+
+
+def test_run_slice_forwards_hide_kwargs_and_devnull(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Slicing must keep OrcaSlicer off the console and off our stdin."""
+    source = tmp_path / "model.3mf"
+    source.write_bytes(b"PK")
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+
+    seen: dict[str, Any] = {}
+
+    def runner(cmd: list[str], **kwargs: Any) -> _Proc:
+        seen.update(kwargs)
+        out_name = cmd[cmd.index("--export-3mf") + 1]
+        (Path(kwargs["cwd"]) / out_name).write_bytes(b"PK")
+        return _Proc(0)
+
+    monkeypatch.setattr(slicer, "_run_process", runner)
+    monkeypatch.setattr(slicer, "subprocess_hide_kwargs", lambda: {"sentinel": True})
+
+    result = run_slice("orca", source, None, out_dir)
+    assert result.ok is True
+    assert seen["sentinel"] is True
+    assert seen["stdin"] == subprocess.DEVNULL

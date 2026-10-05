@@ -20,11 +20,12 @@ import sys
 import tempfile
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 
 from filament_meter import __version__
+from filament_meter.cache import ResultCache, cache_key, results_cache_path
 from filament_meter.cli._common import (
     EXIT_FAILURE,
     EXIT_OK,
@@ -50,6 +51,7 @@ from filament_meter.orca import (
 )
 from filament_meter.parser import analyse, analyse_gcode_file, is_sliced_3mf
 from filament_meter.report import FORMATS, output_format_for, render, write_report
+from filament_meter.settings import load_settings, save_settings
 from filament_meter.slicer import DEFAULT_PROFILES, resolve_profiles, run_slice
 
 PROG = "filament-meter"
@@ -82,6 +84,7 @@ class _Context:
     quiet: bool
     keep_sliced: str | None
     needs: dict[Path, bool]
+    cache: ResultCache | None = None
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -125,8 +128,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--currency",
-        default="RUB",
-        help="currency code for cost figures (default: RUB)",
+        default=None,
+        help="currency code for cost figures (persisted; default: RUB)",
     )
     parser.add_argument(
         "--no-recursive",
@@ -198,7 +201,12 @@ def build_parser() -> argparse.ArgumentParser:
         dest="cache_dir",
         default=None,
         metavar="PATH",
-        help="override the OrcaSlicer cache directory",
+        help="override the OrcaSlicer and result-cache directories",
+    )
+    parser.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="disable the persistent result cache (neither read nor write)",
     )
     parser.add_argument(
         "--keep-sliced",
@@ -307,27 +315,57 @@ def _slice_and_analyse(path: Path, ctx: _Context) -> FileReport:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
+def _reapply_cost(report: FileReport, price: float | None) -> FileReport:
+    """Recompute ``cost`` on a cached report using the current price.
+
+    Cost is deliberately excluded from the cache so a change of ``--price``
+    is reflected on every cache hit.
+    """
+    cost: float | None = None
+    if price and report.total_g:
+        cost = round(report.total_g / 1000.0 * price, 2)
+    return replace(report, cost=cost)
+
+
+def _compute(path: Path, ctx: _Context) -> FileReport:
+    """Analyse ``path`` from scratch, without consulting the cache."""
+    suffix = path.suffix.lower()
+    if suffix == ".3mf" and not zipfile.is_zipfile(path):
+        return _error_report(path, "not a valid 3mf archive")
+    if suffix == ".gcode":
+        return analyse_gcode_file(path, price_per_kg=ctx.price, currency=ctx.currency)
+    if not ctx.needs.get(path, False):
+        return analyse(path, price_per_kg=ctx.price, currency=ctx.currency)
+    if ctx.no_slice:
+        return _skipped_report(path)
+    if ctx.profile_error:
+        return _error_report(path, ctx.profile_error)
+    if ctx.orca is None:
+        return _error_report(path, "OrcaSlicer is required but was not found")
+    return _slice_and_analyse(path, ctx)
+
+
 def _process(path: Path, ctx: _Context) -> FileReport:
-    """Process a single input file into a :class:`FileReport`."""
+    """Process a single input file into a :class:`FileReport`.
+
+    A successful result is cached by absolute path + file size and reused on
+    later runs, so an unchanged model is never sliced or re-parsed twice.
+    """
+    key: str | None = None
+    if ctx.cache is not None and not ctx.force_slice:
+        key = cache_key(path)
+        cached = ctx.cache.get(key)
+        if cached is not None:
+            return _reapply_cost(cached, ctx.price)
     try:
-        suffix = path.suffix.lower()
-        if suffix == ".3mf" and not zipfile.is_zipfile(path):
-            return _error_report(path, "not a valid 3mf archive")
-        if suffix == ".gcode":
-            return analyse_gcode_file(path, price_per_kg=ctx.price, currency=ctx.currency)
-        if not ctx.needs.get(path, False):
-            return analyse(path, price_per_kg=ctx.price, currency=ctx.currency)
-        if ctx.no_slice:
-            return _skipped_report(path)
-        if ctx.profile_error:
-            return _error_report(path, ctx.profile_error)
-        if ctx.orca is None:
-            return _error_report(path, "OrcaSlicer is required but was not found")
-        return _slice_and_analyse(path, ctx)
+        report = _compute(path, ctx)
     except FilamentMeterError as exc:
         return _error_report(path, str(exc))
     except Exception as exc:  # defensive: a single bad file must not kill the batch
         return _error_report(path, f"unexpected error: {exc}")
+    if ctx.cache is not None and report.has_data:
+        ctx.cache.put(key if key is not None else cache_key(path), report)
+    return report
 
 
 def _process_all(files: list[Path], ctx: _Context, jobs: int) -> list[FileReport]:
@@ -517,6 +555,27 @@ def _resolve_inputs(args: argparse.Namespace) -> list[Path]:
     return fallback
 
 
+def _apply_settings(args: argparse.Namespace) -> None:
+    """Merge persisted settings with explicitly-passed flags.
+
+    Explicit ``--price`` / ``--currency`` win; when either flag is omitted
+    the stored value (if any) becomes the default. If either flag was passed
+    explicitly, the merged settings are written back so they persist.
+    """
+    saved = load_settings()
+    changed = False
+    if args.price is not None:
+        changed = True
+    else:
+        args.price = saved.get("price_per_kg")
+    if args.currency is not None:
+        changed = True
+    else:
+        args.currency = saved.get("currency") or "RUB"
+    if changed:
+        save_settings({"price_per_kg": args.price, "currency": args.currency})
+
+
 def _run(args: argparse.Namespace) -> int:
     """Execute the parsed arguments."""
     if args.version:
@@ -529,6 +588,8 @@ def _run(args: argparse.Namespace) -> int:
     if not args.path:
         error(PROG, "PATH is required (or use --version / --check / --install-orca)")
         return EXIT_USAGE
+
+    _apply_settings(args)
 
     try:
         files = _resolve_inputs(args)
@@ -572,6 +633,8 @@ def _run(args: argparse.Namespace) -> int:
 
     orca_ver = orca_version(orca_path) if orca_path is not None else None
 
+    cache = None if args.no_cache else ResultCache(results_cache_path(args.cache_dir))
+
     ctx = _Context(
         price=args.price,
         currency=args.currency,
@@ -585,9 +648,15 @@ def _run(args: argparse.Namespace) -> int:
         quiet=args.quiet,
         keep_sliced=args.keep_sliced,
         needs=needs,
+        cache=cache,
     )
 
     reports = _process_all(files, ctx, args.jobs)
+    if cache is not None:
+        try:
+            cache.save()
+        except OSError as exc:
+            log(PROG, f"could not write result cache: {exc}", quiet=args.quiet)
     run = _build_run(reports, args, orca_ver)
     _emit(run, args)
     return _exit_code(run)

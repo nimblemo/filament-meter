@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-06
+
+### Added
+
+- Persistent **result cache** keyed by a file's absolute path and size, so
+  unchanged models are never sliced or re-parsed twice. Disable with
+  `--no-cache`; relocate with `--cache-dir`.
+- Persistent **settings** for `--currency` and `--price` (`settings.json`),
+  applied as defaults on later runs when the flags are omitted.
+
+### Changed
+
+- OrcaSlicer's own console output (and its Windows console window) is now
+  suppressed during slicing and version probing, so only `filament-meter`
+  output reaches the terminal.
+- `--currency` no longer hard-defaults to `RUB`; it is resolved from the
+  persisted settings (falling back to `RUB`).
+
 ## [0.1.0] - 2026-10-05
 
 ### Added
@@ -31,5 +49,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI matrix (Python 3.11 / 3.12 / 3.13) and OIDC-based PyPI release
   workflow.
 
-[Unreleased]: https://github.com/nimblemo/filament-meter/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/nimblemo/filament-meter/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/nimblemo/filament-meter/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/nimblemo/filament-meter/releases/tag/v0.1.0

@@ -1,6 +1,6 @@
 [project]
 name = "filament-meter"
-version = "0.1.0"
+version = "0.2.0"
 description = "Measure 3D-print filament usage from .3mf / .gcode files, with automatic OrcaSlicer provisioning."
 readme = "README.md"
 requires-python = ">=3.11"

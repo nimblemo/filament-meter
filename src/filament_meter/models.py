@@ -58,6 +58,18 @@ class FilamentUsage:
             "used_m": self.used_m,
         }
 
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> FilamentUsage:
+        """Rebuild a :class:`FilamentUsage` from :meth:`to_dict` output."""
+        return cls(
+            id=str(data.get("id", "")),
+            type=data.get("type"),
+            color=data.get("color"),
+            tray_info_idx=data.get("tray_info_idx"),
+            used_g=data.get("used_g"),
+            used_m=data.get("used_m"),
+        )
+
 
 @dataclass(frozen=True)
 class PlateReport:
@@ -106,6 +118,22 @@ class PlateReport:
             "filaments": [f.to_dict() for f in self.filaments],
             "source": self.source.value,
         }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> PlateReport:
+        """Rebuild a :class:`PlateReport` from :meth:`to_dict` output."""
+        return cls(
+            index=str(data.get("index", "1")),
+            prediction_s=data.get("prediction_s"),
+            weight_g=data.get("weight_g"),
+            nozzle=data.get("nozzle"),
+            layer_height=data.get("layer_height"),
+            objects=data.get("objects"),
+            object_names=tuple(data.get("object_names") or ()),
+            bed_type=data.get("bed_type"),
+            filaments=tuple(FilamentUsage.from_dict(f) for f in data.get("filaments") or ()),
+            source=SliceSource(data.get("source") or SliceSource.UNKNOWN.value),
+        )
 
 
 @dataclass(frozen=True)
@@ -158,6 +186,23 @@ class FileReport:
             "notes": list(self.notes),
             "error": self.error,
         }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> FileReport:
+        """Rebuild a :class:`FileReport` from :meth:`to_dict` output."""
+        return cls(
+            path=Path(data.get("path", "")),
+            name=str(data.get("name", "")),
+            size_bytes=int(data.get("size_bytes", 0)),
+            sliced=bool(data.get("sliced", False)),
+            plates=tuple(PlateReport.from_dict(p) for p in data.get("plates") or ()),
+            total_g=float(data.get("total_g", 0.0)),
+            total_m=float(data.get("total_m", 0.0)),
+            total_time_s=float(data.get("total_time_s", 0.0)),
+            cost=data.get("cost"),
+            notes=tuple(data.get("notes") or ()),
+            error=data.get("error"),
+        )
 
 
 @dataclass(frozen=True)

@@ -183,6 +183,28 @@ def _run_process(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[s
     return result
 
 
+def subprocess_hide_kwargs() -> dict[str, Any]:
+    """Return subprocess kwargs that keep OrcaSlicer off the console.
+
+    On Windows the slicer is a console-subsystem executable that can pop a
+    console window and write its own progress straight to the terminal.
+    ``CREATE_NO_WINDOW`` plus a hidden ``STARTUPINFO`` keeps it silent, so
+    only ``filament-meter`` output reaches the console. On other platforms
+    the child's output is already captured, so an empty mapping is returned.
+    """
+    if os.name != "nt":
+        return {}
+    # Windows only: these ``subprocess`` members exist only on ``nt``, hence
+    # the per-line ignores (so mypy stays green when run on POSIX CI).
+    startupinfo = subprocess.STARTUPINFO()  # type: ignore[attr-defined]
+    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW  # type: ignore[attr-defined]
+    startupinfo.wShowWindow = 0  # SW_HIDE
+    return {
+        "creationflags": subprocess.CREATE_NO_WINDOW,  # type: ignore[attr-defined]
+        "startupinfo": startupinfo,
+    }
+
+
 def short_reason(log: str) -> str:
     """Extract a short human-readable failure reason from an OrcaSlicer log."""
     for line in log.splitlines():
@@ -255,6 +277,8 @@ def run_slice(
                 errors="replace",
                 cwd=str(out_path),
                 timeout=timeout,
+                stdin=subprocess.DEVNULL,
+                **subprocess_hide_kwargs(),
             )
         except subprocess.TimeoutExpired:
             return SliceResult(False, None, "slicing timed out", attempt, "slicing timed out")

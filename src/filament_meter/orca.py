@@ -27,6 +27,7 @@ from urllib.request import Request, urlopen
 import platformdirs
 
 from filament_meter.errors import OrcaDownloadError, OrcaNotFoundError, OrcaProvisionError
+from filament_meter.slicer import subprocess_hide_kwargs
 
 #: GitHub Releases API for the upstream OrcaSlicer repository.
 GITHUB_RELEASES_API = "https://api.github.com/repos/SoftFever/OrcaSlicer/releases"
@@ -485,6 +486,8 @@ def orca_version(binary: str | Path) -> str | None:
             encoding="utf-8",
             errors="replace",
             timeout=20,
+            stdin=subprocess.DEVNULL,
+            **subprocess_hide_kwargs(),
         )
     except (OSError, subprocess.SubprocessError):
         return None

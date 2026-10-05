@@ -7,6 +7,7 @@ Public API re-exports:
 
 from __future__ import annotations
 
+from filament_meter.cache import ResultCache, cache_key, results_cache_path
 from filament_meter.discovery import DEFAULT_PATTERNS, discover
 from filament_meter.errors import (
     DiscoveryError,
@@ -37,9 +38,10 @@ from filament_meter.parser import (
     to_float,
 )
 from filament_meter.report import FORMATS, render, write_report
+from filament_meter.settings import load_settings, save_settings
 from filament_meter.slicer import SliceResult, run_slice
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "__version__",
@@ -49,9 +51,11 @@ __all__ = [
     "FilamentUsage",
     "FORMATS",
     "PlateReport",
+    "ResultCache",
     "RunReport",
     "SliceResult",
     "SliceSource",
+    "cache_key",
     "DiscoveryError",
     "OrcaDownloadError",
     "OrcaError",
@@ -69,9 +73,12 @@ __all__ = [
     "find_orca",
     "fmt_time",
     "is_sliced_3mf",
+    "load_settings",
     "parse_time_text",
     "render",
+    "results_cache_path",
     "run_slice",
+    "save_settings",
     "to_float",
     "write_report",
 ]

@@ -192,8 +192,8 @@ For every file the tool decides between two paths:
 | --- | --- |
 | `-o, --output FILE` | Write the report to a file. Format from the extension (`.json` / `.csv` / `.md` / `.txt`); unknown extensions fall back to `txt`. |
 | `-f, --format {table,json,csv,md}` | Stdout format (default: `table`). |
-| `--price FLOAT` | Filament price per kilogram, for cost calculation. |
-| `--currency STR` | Currency code (default: `RUB`). |
+| `--price FLOAT` | Filament price per kilogram, for cost calculation (persisted). |
+| `--currency STR` | Currency code (persisted; default: `RUB`). |
 | `--no-recursive` | Do not walk directories recursively. |
 | `--glob PATTERN` | File mask(s) used when `PATH` is a directory (repeatable). Overrides the default masks (`*.3mf`, `*.stl`, `*.obj`). |
 | `--orca PATH` | Explicit OrcaSlicer executable. |
@@ -206,7 +206,8 @@ For every file the tool decides between two paths:
 | `--use-project-settings` | Do not pass profiles; rely on settings embedded in the project. |
 | `--jobs INT` | Number of files to slice in parallel (default: 1). |
 | `--timeout INT` | Per-file slicing timeout in seconds (default: 3600). |
-| `--cache-dir PATH` | Override the OrcaSlicer cache directory. |
+| `--cache-dir PATH` | Override the OrcaSlicer and result-cache directories. |
+| `--no-cache` | Disable the persistent result cache (neither read nor write). |
 | `--keep-sliced DIR` | Copy freshly-sliced `.3mf` files into `DIR` (default: temp dir, removed after parsing). |
 | `-q, --quiet` / `-v, --verbose` | Adjust logging. |
 | `--version` | Print the version and exit. |
@@ -243,14 +244,23 @@ Gesha_Bambu_sliced.3mf;да;1;4;PLA;#8E9089;96.54;31.85;21439.0;212.39
 
 ## Configuration
 
-`filament-meter` is configured entirely through flags and environment
-variables. Nothing is written to disk except the report you ask for and
-the OrcaSlicer cache.
+`filament-meter` is configured through flags and environment variables.
+Besides the report you ask for and the OrcaSlicer cache, two small files are
+written to disk:
+
+- a **result cache** (`results.json`) that remembers the filament figures of
+  every model already analysed — keyed by its **absolute path and file
+  size** — so an unchanged model is never sliced or re-parsed twice;
+- a **settings file** (`settings.json`) that persists the last `--currency`
+  and `--price` values so they become the defaults on later runs.
+
+Both can be disabled / relocated with `--no-cache` and `--cache-dir`.
 
 | Variable | Purpose | Default |
 | --- | --- | --- |
 | `FILAMENT_METER_ORCA` | Path to an OrcaSlicer executable. | — |
-| `FILAMENT_METER_CACHE_DIR` | Override the OrcaSlicer download cache. | platform cache dir |
+| `FILAMENT_METER_CACHE_DIR` | Override the OrcaSlicer + result-cache directory. | platform cache dir |
+| `FILAMENT_METER_CONFIG_DIR` | Override the settings-file directory. | platform config dir |
 
 The cache location (unless overridden) is:
 
@@ -279,7 +289,7 @@ OrcaSlicer build is downloaded automatically (no admin rights required).
 touching any model. A real example on Windows:
 
 ```text
-filament-meter 0.1.0
+filament-meter 0.2.0
 python: 3.12.14
 platform: windows
 cache dir: C:\Users\mikhe\AppData\Local\filament-meter\Cache\orca
@@ -341,6 +351,8 @@ PATH ─▶ │ discovery  │ ───────────────▶ 
     ├── models.py            # frozen dataclasses + SliceSource enum
     ├── errors.py            # exception hierarchy
     ├── discovery.py         # path (file/dir/glob) -> file list
+    ├── cache.py             # persistent result cache (path + size keyed)
+    ├── settings.py          # persisted currency / price settings
     ├── parser.py            # sliced 3mf / gcode parsing
     ├── slicer.py            # OrcaSlicer CLI invocation
     ├── orca.py              # find / download / provision OrcaSlicer
@@ -460,8 +472,6 @@ it. No API tokens are stored in GitHub secrets.
 ### Cutting a release
 
 1. Bump `version` in `pyproject.toml` and `src/filament_meter/__init__.py`.
-   This is **not** needed for the initial `v0.1.0` — the tree already
-   carries that version.
 2. Add `.release-notes/vX.Y.Z.md` and update `CHANGELOG.md`.
 3. Commit, push, and publish a GitHub Release tagged `vX.Y.Z` against
    `main`. `release.yml` builds the wheel, smoke-tests it and uploads it to

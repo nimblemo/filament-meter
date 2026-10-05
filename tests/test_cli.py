@@ -21,7 +21,7 @@ from filament_meter.slicer import SliceResult
 def test_version(capsys: pytest.CaptureFixture[str]) -> None:
     code = app.main(["--version"])
     assert code == 0
-    assert "filament-meter 0.1.0" in capsys.readouterr().out
+    assert "filament-meter 0.2.0" in capsys.readouterr().out
 
 
 def test_no_path_is_usage_error(capsys: pytest.CaptureFixture[str]) -> None:
@@ -366,3 +366,103 @@ def test_no_gcode_hint_when_no_gcode_present(
     captured = capsys.readouterr()
     assert code == 0
     assert ".gcode file(s) skipped" not in captured.err
+
+
+def _patch_slicing(monkeypatch: pytest.MonkeyPatch, sliced: Path) -> list[object]:
+    """Patch the slicing path so tests can count real slice invocations."""
+    monkeypatch.setattr(app, "ensure_orca", lambda *a, **k: Path("/fake/orca"))
+    monkeypatch.setattr(app, "orca_version", lambda binary: None)
+    monkeypatch.setattr(
+        app, "resolve_profiles", lambda *a, **k: {"machine": "m", "process": "p", "filament": "f"}
+    )
+    calls: list[object] = []
+
+    def fake_slice(*args: object, **kwargs: object) -> SliceResult:
+        calls.append(args)
+        return SliceResult(True, sliced, "log", 1)
+
+    monkeypatch.setattr(app, "run_slice", fake_slice)
+    return calls
+
+
+def test_slice_result_is_cached_and_reused(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """An unchanged (path, size) model is never sliced twice."""
+    source = tmp_path / "part.stl"
+    source.write_text("mesh", encoding="utf-8")
+    sliced = factories.make_sliced_3mf(tmp_path / "out.3mf", used_g=5.0, used_m=1.65)
+    calls = _patch_slicing(monkeypatch, sliced)
+
+    assert app.main([str(source)]) == 0
+    assert len(calls) == 1
+    # Second run on the same (path, size) must hit the cache, not the slicer.
+    assert app.main([str(source)]) == 0
+    assert len(calls) == 1
+
+
+def test_cache_invalidated_when_size_changes(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A different file size means a different model, so the cache is bypassed."""
+    source = tmp_path / "part.stl"
+    source.write_text("mesh", encoding="utf-8")
+    sliced = factories.make_sliced_3mf(tmp_path / "out.3mf", used_g=5.0, used_m=1.65)
+    calls = _patch_slicing(monkeypatch, sliced)
+
+    assert app.main([str(source)]) == 0
+    assert len(calls) == 1
+    source.write_text("mesh-but-different", encoding="utf-8")
+    assert app.main([str(source)]) == 0
+    assert len(calls) == 2
+
+
+def test_no_cache_disables_cache(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """``--no-cache`` disables both reading and writing of the cache."""
+    source = tmp_path / "part.stl"
+    source.write_text("mesh", encoding="utf-8")
+    sliced = factories.make_sliced_3mf(tmp_path / "out.3mf", used_g=5.0, used_m=1.65)
+    calls = _patch_slicing(monkeypatch, sliced)
+
+    assert app.main([str(source), "--no-cache"]) == 0
+    assert app.main([str(source), "--no-cache"]) == 0
+    assert len(calls) == 2
+
+
+def test_price_and_currency_are_persisted(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Explicit ``--price`` / ``--currency`` flags are written back."""
+    saved: list[dict] = []
+    monkeypatch.setattr(app, "load_settings", lambda: {"price_per_kg": None, "currency": "RUB"})
+    monkeypatch.setattr(app, "save_settings", lambda settings: saved.append(settings))
+
+    model = factories.make_sliced_3mf(tmp_path / "m.3mf", used_g=10.0, used_m=3.3)
+    code = app.main([str(model), "--price", "2200", "--currency", "USD"])
+    assert code == 0
+    assert saved == [{"price_per_kg": 2200.0, "currency": "USD"}]
+
+
+def test_saved_price_and_currency_used_as_defaults(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """When flags are omitted, persisted values become the defaults."""
+    monkeypatch.setattr(app, "load_settings", lambda: {"price_per_kg": 2200.0, "currency": "USD"})
+    monkeypatch.setattr(app, "save_settings", lambda settings: None)
+
+    model = factories.make_sliced_3mf(tmp_path / "m.3mf", used_g=100.0, used_m=33.0)
+    code = app.main([str(model)])
+    out = capsys.readouterr().out
+    assert code == 0
+    # cost = 100 g / 1000 * 2200 = 220.00 USD
+    assert "220.00 USD" in out
+
+
+def test_explicit_price_overrides_saved_default(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """An explicit flag wins over a persisted value."""
+    monkeypatch.setattr(app, "load_settings", lambda: {"price_per_kg": 1000.0, "currency": "USD"})
+    monkeypatch.setattr(app, "save_settings", lambda settings: None)
+
+    model = factories.make_sliced_3mf(tmp_path / "m.3mf", used_g=100.0, used_m=33.0)
+    code = app.main([str(model), "--price", "200"])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "20.00 USD" in out
