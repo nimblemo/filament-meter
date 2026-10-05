@@ -160,10 +160,22 @@ filament-meter PATH [options]
 
 `PATH` is the only positional argument. It may be:
 
-- a **file** (`.3mf`, `.gcode`, `.stl`, `.obj`, `.gcode.3mf`);
-- a **directory** — scanned recursively for `*.3mf`, `*.stl`, `*.obj`,
-  `*.gcode` (disable with `--no-recursive`, narrow with `--glob`);
+- a **file** (`.3mf`, `.gcode`, `.stl`, `.obj`, `.gcode.3mf`) — an explicitly
+  named file is *always* processed, whatever its extension;
+- a **directory** — scanned recursively for the default model masks
+  `*.3mf`, `*.stl`, `*.obj` (disable the walk with `--no-recursive`, replace
+  the masks with `--glob`);
 - a **glob pattern** such as `"D:/models/*.3mf"`.
+
+> **Why `.gcode` is not a default directory mask.** When a model is sliced
+> the slicer drops a `plate_N.gcode` (or `<model>.gcode`) *next to* the
+> `.3mf`. Scanning `*.gcode` together with `*.3mf` would therefore report the
+> same object twice. If the default scan of a directory finds **nothing** but
+> `*.gcode` files are present (e.g. a folder of slices downloaded from
+> Printables), the tool automatically retries with `*.gcode` and notes
+> `falling back to *.gcode` on stderr. Pass `--glob "*.gcode"` to opt into
+> G-code explicitly.
+
 
 For every file the tool decides between two paths:
 
@@ -183,7 +195,7 @@ For every file the tool decides between two paths:
 | `--price FLOAT` | Filament price per kilogram, for cost calculation. |
 | `--currency STR` | Currency code (default: `RUB`). |
 | `--no-recursive` | Do not walk directories recursively. |
-| `--glob PATTERN` | File mask(s) used when `PATH` is a directory (repeatable). |
+| `--glob PATTERN` | File mask(s) used when `PATH` is a directory (repeatable). Overrides the default masks (`*.3mf`, `*.stl`, `*.obj`). |
 | `--orca PATH` | Explicit OrcaSlicer executable. |
 | `--orca-version STR` | OrcaSlicer version to download (default: `latest`). |
 | `--install-orca` | Only download OrcaSlicer and exit (does not need `PATH`). |

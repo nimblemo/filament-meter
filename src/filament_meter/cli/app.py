@@ -34,7 +34,7 @@ from filament_meter.cli._common import (
     error,
     log,
 )
-from filament_meter.discovery import discover
+from filament_meter.discovery import GCODE_FALLBACK_PATTERNS, discover
 from filament_meter.errors import (
     FilamentMeterError,
     OrcaError,
@@ -445,6 +445,42 @@ def _run_install_orca(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _resolve_inputs(args: argparse.Namespace) -> list[Path]:
+    """Resolve ``args.path`` into the list of files to process.
+
+    Explicit ``--glob`` masks take precedence over the defaults. When a
+    directory is scanned with the default model masks and nothing is found,
+    the scan is retried with ``*.gcode`` so that a directory holding only
+    G-code byproducts still yields a report. ``.gcode`` is never mixed with
+    the default masks because that would double-count models that the slicer
+    left a ``.gcode`` twin for.
+
+    Args:
+        args: Parsed CLI namespace carrying ``path``, ``no_recursive`` and
+            ``globs``.
+
+    Returns:
+        The discovered files (possibly empty).
+
+    Raises:
+        FilamentMeterError: If the path cannot be resolved.
+    """
+    patterns = tuple(args.globs) if args.globs else None
+    recursive = not args.no_recursive
+    files = discover(args.path, recursive=recursive, patterns=patterns)
+    if files or patterns is not None:
+        return files
+    # No ``--glob`` was given and the default model masks matched nothing.
+    # Only a directory can trigger the G-code fallback — an explicitly named
+    # file is always honoured by ``discover`` above.
+    if not Path(args.path).expanduser().is_dir():
+        return files
+    fallback = discover(args.path, recursive=recursive, patterns=GCODE_FALLBACK_PATTERNS)
+    if fallback:
+        log(PROG, "no model files found; falling back to *.gcode", quiet=args.quiet)
+    return fallback
+
+
 def _run(args: argparse.Namespace) -> int:
     """Execute the parsed arguments."""
     if args.version:
@@ -458,9 +494,8 @@ def _run(args: argparse.Namespace) -> int:
         error(PROG, "PATH is required (or use --version / --check / --install-orca)")
         return EXIT_USAGE
 
-    patterns = tuple(args.globs) if args.globs else None
     try:
-        files = discover(args.path, recursive=not args.no_recursive, patterns=patterns)
+        files = _resolve_inputs(args)
     except FilamentMeterError as exc:
         error(PROG, str(exc))
         return EXIT_USAGE

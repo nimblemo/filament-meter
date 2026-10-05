@@ -242,3 +242,52 @@ def test_standalone_gcode_file(tmp_path: Path) -> None:
     gcode = factories.make_gcode_file(tmp_path / "part.gcode")
     code = app.main([str(gcode)])
     assert code == 0
+
+
+def test_directory_does_not_double_count_gcode_byproduct(tmp_path: Path) -> None:
+    """A sliced ``.3mf`` plus its ``.gcode`` twin must count once."""
+    factories.make_sliced_3mf(tmp_path / "lamp_sliced.3mf", used_g=10.0, used_m=3.3)
+    factories.make_gcode_file(tmp_path / "gcode" / "lamp.gcode")
+
+    out_file = tmp_path / "report.json"
+    code = app.main([str(tmp_path), "-o", str(out_file)])
+    assert code == 0
+    data = json.loads(out_file.read_text(encoding="utf-8"))
+    assert len(data["files"]) == 1
+    assert data["files"][0]["name"] == "lamp_sliced.3mf"
+    assert data["total_g"] == pytest.approx(10.0)
+
+
+def test_directory_gcode_fallback(capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
+    """A G-code-only directory is picked up via the ``*.gcode`` fallback."""
+    factories.make_gcode_file(tmp_path / "plate_1.gcode")
+
+    code = app.main([str(tmp_path)])
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "falling back to *.gcode" in captured.err
+
+
+def test_explicit_gcode_file_always_processed(tmp_path: Path) -> None:
+    """An explicitly named ``.gcode`` is processed even next to a ``.3mf``."""
+    factories.make_sliced_3mf(tmp_path / "lamp_sliced.3mf", used_g=10.0, used_m=3.3)
+    gcode = factories.make_gcode_file(tmp_path / "lamp.gcode")
+
+    out_file = tmp_path / "report.json"
+    code = app.main([str(gcode), "-o", str(out_file)])
+    assert code == 0
+    data = json.loads(out_file.read_text(encoding="utf-8"))
+    assert len(data["files"]) == 1
+    assert data["files"][0]["name"] == "lamp.gcode"
+
+
+def test_glob_overrides_default_patterns(tmp_path: Path) -> None:
+    """An explicit ``--glob`` replaces the default directory masks."""
+    factories.make_sliced_3mf(tmp_path / "lamp_sliced.3mf", used_g=10.0, used_m=3.3)
+    factories.make_gcode_file(tmp_path / "lamp.gcode")
+
+    out_file = tmp_path / "report.json"
+    code = app.main([str(tmp_path), "--glob", "*.gcode", "-o", str(out_file)])
+    assert code == 0
+    data = json.loads(out_file.read_text(encoding="utf-8"))
+    assert [f["name"] for f in data["files"]] == ["lamp.gcode"]

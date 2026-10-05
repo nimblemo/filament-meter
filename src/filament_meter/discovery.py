@@ -3,10 +3,17 @@
 The entry point is :func:`discover`. It accepts a single path-like string
 that may be:
 
-* a regular file → returned as-is;
-* a directory → scanned (recursively by default) for the default model
-  patterns;
+* a regular file → returned as-is (any extension, always processed);
+* a directory → scanned (recursively by default) for the default *model*
+  patterns (:data:`DEFAULT_PATTERNS`);
 * a shell-style glob pattern (containing ``*``, ``?`` or ``[``) → expanded.
+
+``.gcode`` is deliberately **not** a default directory pattern: when you
+slice a model the slicer drops a ``plate_N.gcode`` / ``<model>.gcode``
+next to it, so scanning ``*.gcode`` alongside ``*.3mf`` would report the
+same object twice. A directory that contains *only* G-code (e.g. slices
+downloaded from Printables) is still handled — the CLI retries with
+``*.gcode`` when the default scan comes up empty.
 
 Results are de-duplicated by resolved path and returned in a stable,
 case-insensitive order so that reports are reproducible.
@@ -21,13 +28,16 @@ from pathlib import Path
 from filament_meter.errors import DiscoveryError
 
 #: File patterns scanned inside a directory by default.
+#:
+#: Note: ``*.gcode`` is intentionally absent — see the module docstring.
 DEFAULT_PATTERNS: tuple[str, ...] = (
     "*.3mf",
     "*.stl",
     "*.obj",
-    "*.gcode",
-    "*.gcode.3mf",
 )
+
+#: Fallback pattern used when a directory yields no model files at all.
+GCODE_FALLBACK_PATTERNS: tuple[str, ...] = ("*.gcode",)
 
 #: Characters that mark a path as a glob pattern.
 _GLOB_MAGIC = "*?["
