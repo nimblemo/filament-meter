@@ -328,3 +328,41 @@ def test_orphan_gcode_next_to_models_is_not_counted(tmp_path: Path) -> None:
     data = json.loads(out_file.read_text(encoding="utf-8"))
     assert [f["name"] for f in data["files"]] == ["model_sliced.3mf"]
     assert data["total_g"] == pytest.approx(10.0)
+
+
+def test_skipped_gcode_hint_in_verbose_mode(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """Verbose mode warns about orphan ``.gcode`` left out of the default scan."""
+    factories.make_sliced_3mf(tmp_path / "model_sliced.3mf", used_g=10.0, used_m=3.3)
+    factories.make_gcode_file(tmp_path / "orphan.gcode")
+
+    code = app.main([str(tmp_path), "-v"])
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "1 .gcode file(s) skipped" in captured.err
+
+
+def test_skipped_gcode_hint_absent_without_verbose(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """Without ``-v`` the hint stays silent so routine runs are not noisy."""
+    factories.make_sliced_3mf(tmp_path / "model_sliced.3mf", used_g=10.0, used_m=3.3)
+    factories.make_gcode_file(tmp_path / "orphan.gcode")
+
+    code = app.main([str(tmp_path)])
+    captured = capsys.readouterr()
+    assert code == 0
+    assert ".gcode file(s) skipped" not in captured.err
+
+
+def test_no_gcode_hint_when_no_gcode_present(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """A directory without any ``.gcode`` must not emit the hint, even with ``-v``."""
+    factories.make_sliced_3mf(tmp_path / "model_sliced.3mf", used_g=10.0, used_m=3.3)
+
+    code = app.main([str(tmp_path), "-v"])
+    captured = capsys.readouterr()
+    assert code == 0
+    assert ".gcode file(s) skipped" not in captured.err

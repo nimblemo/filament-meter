@@ -445,6 +445,29 @@ def _run_install_orca(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _count_skipped_gcode(root: str | Path, recursive: bool, chosen: list[Path]) -> int:
+    """Count ``.gcode`` files under ``root`` that are missing from ``chosen``.
+
+    The default model masks deliberately exclude ``*.gcode`` (see
+    :mod:`filament_meter.discovery`). This helper lets the CLI warn — in
+    verbose mode — about G-code that the default scan therefore left out, so
+    that a directory mixing models and standalone G-code does not lose data
+    silently.
+
+    Args:
+        root: The directory that was scanned.
+        recursive: Whether the scan walked sub-directories.
+        chosen: The files the default scan selected.
+
+    Returns:
+        The number of ``.gcode`` files present under ``root`` but absent from
+        ``chosen``.
+    """
+    found = discover(root, recursive=recursive, patterns=GCODE_FALLBACK_PATTERNS)
+    chosen_keys = {path.resolve() for path in chosen}
+    return sum(1 for path in found if path.resolve() not in chosen_keys)
+
+
 def _resolve_inputs(args: argparse.Namespace) -> list[Path]:
     """Resolve ``args.path`` into the list of files to process.
 
@@ -469,6 +492,19 @@ def _resolve_inputs(args: argparse.Namespace) -> list[Path]:
     recursive = not args.no_recursive
     files = discover(args.path, recursive=recursive, patterns=patterns)
     if files or patterns is not None:
+        # The default masks skip ``*.gcode`` on purpose (avoids double-counting
+        # a model and its sliced twin). In verbose mode, warn about G-code the
+        # scan therefore left out, so mixed directories do not lose data
+        # silently. An explicit ``--glob`` means the user chose the set, so no
+        # hint is needed there.
+        if files and args.globs is None and args.verbose and Path(args.path).expanduser().is_dir():
+            skipped = _count_skipped_gcode(args.path, recursive, files)
+            if skipped:
+                log(
+                    PROG,
+                    f'{skipped} .gcode file(s) skipped; pass --glob "*.gcode" to include them',
+                    quiet=False,
+                )
         return files
     # No ``--glob`` was given and the default model masks matched nothing.
     # Only a directory can trigger the G-code fallback — an explicitly named
