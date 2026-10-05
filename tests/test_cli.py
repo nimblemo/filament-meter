@@ -291,3 +291,40 @@ def test_glob_overrides_default_patterns(tmp_path: Path) -> None:
     assert code == 0
     data = json.loads(out_file.read_text(encoding="utf-8"))
     assert [f["name"] for f in data["files"]] == ["lamp.gcode"]
+
+
+def test_many_models_with_gcode_twins_aggregate_once_each(tmp_path: Path) -> None:
+    """N sliced models plus their N ``gcode/`` twins must total N models.
+
+    This mirrors the real ``sliced/`` / ``sliced-table-lamp/`` layout, where
+    each ``<model>_sliced.3mf`` has a ``gcode/<model>.gcode`` sibling: the
+    aggregate must be the sum over models, never twice that.
+    """
+    for name, grams in (("a", 10.0), ("b", 20.0), ("c", 30.0)):
+        factories.make_sliced_3mf(tmp_path / f"{name}_sliced.3mf", used_g=grams, used_m=grams / 3)
+        factories.make_gcode_file(tmp_path / "gcode" / f"{name}.gcode")
+
+    out_file = tmp_path / "report.json"
+    code = app.main([str(tmp_path), "-o", str(out_file)])
+    assert code == 0
+    data = json.loads(out_file.read_text(encoding="utf-8"))
+    assert len(data["files"]) == 3
+    assert data["total_g"] == pytest.approx(60.0)
+
+
+def test_orphan_gcode_next_to_models_is_not_counted(tmp_path: Path) -> None:
+    """An unpaired ``.gcode`` beside models is deliberately skipped.
+
+    ``.gcode`` is not a default directory mask, so a G-code that has no
+    ``.3mf`` twin in a directory that *does* contain models is not reported.
+    Pass ``--glob "*.gcode"`` (or the file directly) to opt in explicitly.
+    """
+    factories.make_sliced_3mf(tmp_path / "model_sliced.3mf", used_g=10.0, used_m=3.3)
+    factories.make_gcode_file(tmp_path / "orphan.gcode")
+
+    out_file = tmp_path / "report.json"
+    code = app.main([str(tmp_path), "-o", str(out_file)])
+    assert code == 0
+    data = json.loads(out_file.read_text(encoding="utf-8"))
+    assert [f["name"] for f in data["files"]] == ["model_sliced.3mf"]
+    assert data["total_g"] == pytest.approx(10.0)
