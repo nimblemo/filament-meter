@@ -184,29 +184,25 @@ def test_ensure_orca_returns_existing(monkeypatch: pytest.MonkeyPatch, tmp_path:
     assert orca.ensure_orca() == binary
 
 
-def test_orca_version_parses_output(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    class _Proc:
-        stdout = "OrcaSlicer 2.4.2"
-        stderr = ""
-
-    monkeypatch.setattr(orca, "_run_process", lambda *a, **k: _Proc())
-    assert orca.orca_version(tmp_path / "orca") == "2.4.2"
+def test_orca_version_reads_marker_file(tmp_path: Path) -> None:
+    binary = tmp_path / "orca-slicer.exe"
+    binary.write_text("x", encoding="utf-8")
+    (tmp_path / "VERSION").write_text("2.4.2\n", encoding="utf-8")
+    assert orca.orca_version(binary) == "2.4.2"
 
 
-def test_orca_version_ignores_invalid_option(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    class _Proc:
-        stdout = "Invalid option --version"
-        stderr = ""
+def test_orca_version_finds_marker_in_parent_dir(tmp_path: Path) -> None:
+    """The download writes ``VERSION`` to the target dir, above the binary."""
+    target = tmp_path / "OrcaSlicer"
+    target.mkdir()
+    binary = target / "orca-slicer.exe"
+    binary.write_text("x", encoding="utf-8")
+    (tmp_path / "VERSION").write_text("v2.4.2\n", encoding="utf-8")
+    assert orca.orca_version(binary) == "2.4.2"
 
-    monkeypatch.setattr(orca, "_run_process", lambda *a, **k: _Proc())
-    assert orca.orca_version(tmp_path / "orca") is None
 
-
-def test_orca_version_handles_failure(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    def boom(*args: Any, **kwargs: Any) -> Any:
-        raise OSError("nope")
-
-    monkeypatch.setattr(orca, "_run_process", boom)
-    assert orca.orca_version(tmp_path / "orca") is None
+def test_orca_version_missing_marker(tmp_path: Path) -> None:
+    """A system install has no ``VERSION`` file, so the version is unknown."""
+    binary = tmp_path / "orca-slicer.exe"
+    binary.write_text("x", encoding="utf-8")
+    assert orca.orca_version(binary) is None

@@ -462,7 +462,7 @@ def _run_check(args: argparse.Namespace) -> int:
     if version:
         print(f"OrcaSlicer version: {version}")
     else:
-        print("OrcaSlicer version: unknown (CLI does not report --version)")
+        print("OrcaSlicer version: unknown (system install; no VERSION marker)")
     return EXIT_OK
 
 

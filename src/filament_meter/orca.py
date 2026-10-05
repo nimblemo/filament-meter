@@ -12,7 +12,6 @@ from __future__ import annotations
 import json
 import os
 import platform
-import re
 import shutil
 import stat
 import subprocess
@@ -27,7 +26,6 @@ from urllib.request import Request, urlopen
 import platformdirs
 
 from filament_meter.errors import OrcaDownloadError, OrcaNotFoundError, OrcaProvisionError
-from filament_meter.slicer import subprocess_hide_kwargs
 
 #: GitHub Releases API for the upstream OrcaSlicer repository.
 GITHUB_RELEASES_API = "https://api.github.com/repos/SoftFever/OrcaSlicer/releases"
@@ -469,42 +467,32 @@ def download_orca(
         archive.unlink(missing_ok=True)
 
     (target / "VERSION").write_text(resolved + "\n", encoding="utf-8")
-    _verify_binary(binary)
     return binary
 
 
 def orca_version(binary: str | Path) -> str | None:
-    """Return the OrcaSlicer version string, best-effort.
+    """Return the OrcaSlicer version from its ``VERSION`` marker file.
 
-    Never raises: an unresponsive binary simply yields ``None``.
+    OrcaSlicer does not support ``--version``, and on Windows its executable
+    is a GUI application that writes any ``--version`` output straight to the
+    parent console (bypassing the stdout/stderr pipes). The binary is
+    therefore never launched here; instead the ``VERSION`` file that
+    :func:`download_orca` writes next to provisioned builds is read. A system
+    install has no such file and yields ``None``. Never raises.
     """
-    try:
-        proc = _run_process(
-            [str(binary), "--version"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=20,
-            stdin=subprocess.DEVNULL,
-            **subprocess_hide_kwargs(),
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    output = ((proc.stdout or "") + (proc.stderr or "")).strip()
-    match = re.search(r"(\d+\.\d+\.\d+)", output)
-    if match:
-        return match.group(1)
-    first_line = output.splitlines()[0].strip() if output else ""
-    lowered = first_line.lower()
-    if first_line and "invalid" not in lowered and "option" not in lowered:
-        return first_line
+    marker = Path(binary).resolve().parent
+    for _ in range(4):
+        candidate = marker / "VERSION"
+        try:
+            text = candidate.read_text(encoding="utf-8").strip()
+        except OSError:
+            text = ""
+        if text:
+            return text.lstrip("vV")
+        if marker.parent == marker:
+            break
+        marker = marker.parent
     return None
-
-
-def _verify_binary(binary: Path) -> None:
-    """Best-effort sanity check that ``binary`` can be launched."""
-    orca_version(binary)
 
 
 def ensure_orca(

@@ -295,11 +295,13 @@ platform: windows
 cache dir: C:\Users\mikhe\AppData\Local\filament-meter\Cache\orca
 cache writable: yes
 OrcaSlicer: C:\Users\mikhe\AppData\Local\Programs\OrcaSlicer\orca-slicer.exe
-OrcaSlicer version: unknown (CLI does not report --version)
+OrcaSlicer version: unknown (system install; no VERSION marker)
 ```
 
-The OrcaSlicer CLI does not answer `--version`, so the version line reads
-`unknown (CLI does not report --version)` — this is expected, not an error.
+A system OrcaSlicer install does not ship a `VERSION` marker file (and the
+CLI does not answer `--version`), so the version line reads `unknown` — this
+is expected, not an error. Builds downloaded by `filament-meter` itself write
+a `VERSION` file next to the binary, so those do report a version.
 
 ***
 
