@@ -1,0 +1,62 @@
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# IDE
+.idea/
+*.iml
+.fleet/
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# Logs / temp
+*.log
+logs/
+tmp/
+temp/
+.tmp/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Build artefacts (uv build / hatchling)
+dist/
+build/
+
+# Local test scratch
+.pytest_base/
+.ptmp/
+pytest_out.txt
+.ptest*.log
+
+# Local data / secrets — never commit
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Sliced output (large, regenerable)
+sliced/
+*.sliced.3mf
+
+# Agent runtimes
+.claude/
+.agents/
+.codex/
+.trae/

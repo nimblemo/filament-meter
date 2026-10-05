@@ -1,0 +1,244 @@
+"""End-to-end tests for the ``filament-meter`` CLI.
+
+Every test calls :func:`filament_meter.cli.app.main` directly (no
+subprocess) and mocks OrcaSlicer so the suite never slices for real.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+import factories
+from filament_meter import slicer
+from filament_meter.cli import app
+from filament_meter.errors import ProfileNotFoundError
+from filament_meter.slicer import SliceResult
+
+
+def test_version(capsys: pytest.CaptureFixture[str]) -> None:
+    code = app.main(["--version"])
+    assert code == 0
+    assert "filament-meter 0.1.0" in capsys.readouterr().out
+
+
+def test_no_path_is_usage_error(capsys: pytest.CaptureFixture[str]) -> None:
+    code = app.main([])
+    assert code == 2
+    assert "PATH is required" in capsys.readouterr().err
+
+
+def test_missing_path_is_usage_error(capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
+    code = app.main([str(tmp_path / "nope.3mf")])
+    assert code == 2
+    assert "path not found" in capsys.readouterr().err
+
+
+def test_check_when_orca_present(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    monkeypatch.setattr(app, "cache_root", lambda override=None: tmp_path / "cache")
+    fake_orca = Path("/fake/orca")
+    monkeypatch.setattr(app, "find_orca", lambda explicit=None: fake_orca)
+    monkeypatch.setattr(app, "orca_version", lambda binary: "2.4.2")
+
+    code = app.main(["--check"])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert f"OrcaSlicer: {fake_orca}" in out
+    assert "2.4.2" in out
+
+
+def test_check_when_orca_missing(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    monkeypatch.setattr(app, "cache_root", lambda override=None: tmp_path / "cache")
+    monkeypatch.setattr(app, "find_orca", lambda explicit=None: None)
+
+    code = app.main(["--check"])
+    assert code == 2
+    assert "not found" in capsys.readouterr().out
+
+
+def test_install_orca(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    monkeypatch.setattr(app, "ensure_orca", lambda *a, **k: Path("/fake/orca"))
+    code = app.main(["--install-orca"])
+    assert code == 0
+    assert "OrcaSlicer ready" in capsys.readouterr().out
+
+
+def test_install_orca_failure(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def boom(*args: object, **kwargs: object) -> Path:
+        raise ProfileNotFoundError("no network")
+
+    monkeypatch.setattr(app, "ensure_orca", boom)
+    code = app.main(["--install-orca"])
+    assert code == 2
+    assert "no network" in capsys.readouterr().err
+
+
+def test_run_sliced_file_success(capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
+    model = factories.make_sliced_3mf(tmp_path / "Gesha_sliced.3mf", used_g=96.54, used_m=31.85)
+    code = app.main([str(model)])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "96.54" in out
+    assert "31.85" in out
+
+
+def test_run_unsliced_with_no_slice_is_failure(tmp_path: Path) -> None:
+    model = factories.make_unsliced_3mf(tmp_path / "raw.3mf")
+    code = app.main([str(model), "--no-slice"])
+    assert code == 3
+
+
+def test_corrupt_3mf_reports_error_without_slicing(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    """A non-zip .3mf must be flagged as an error, never sent to OrcaSlicer."""
+    bad = factories.make_bad_zip(tmp_path / "broken.3mf")
+
+    sliced_calls: list[object] = []
+    orca_calls: list[object] = []
+    monkeypatch.setattr(slicer, "_run_process", lambda *a, **k: sliced_calls.append(a))
+    monkeypatch.setattr(app, "ensure_orca", lambda *a, **k: orca_calls.append(a))
+
+    code = app.main([str(bad)])
+    out = capsys.readouterr().out
+    assert code == 3
+    assert sliced_calls == []
+    assert orca_calls == []
+    assert "not a valid 3mf archive" in out
+
+
+def test_stl_still_goes_to_slicer(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A bare .stl is not a zip and must still be sliced."""
+    source = tmp_path / "part.stl"
+    source.write_text("mesh", encoding="utf-8")
+    sliced = factories.make_sliced_3mf(tmp_path / "part_out.3mf", used_g=5.0, used_m=1.65)
+
+    monkeypatch.setattr(app, "ensure_orca", lambda *a, **k: Path("/fake/orca"))
+    monkeypatch.setattr(app, "orca_version", lambda binary: None)
+    monkeypatch.setattr(
+        app, "resolve_profiles", lambda *a, **k: {"machine": "m", "process": "p", "filament": "f"}
+    )
+    calls: list[object] = []
+
+    def fake_slice(*args: object, **kwargs: object) -> SliceResult:
+        calls.append(args)
+        return SliceResult(True, sliced, "log", 1)
+
+    monkeypatch.setattr(app, "run_slice", fake_slice)
+
+    code = app.main([str(source)])
+    assert code == 0
+    assert len(calls) == 1
+
+
+def test_run_partial_success(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    factories.make_sliced_3mf(tmp_path / "good_sliced.3mf", used_g=10.0, used_m=3.3)
+    factories.make_bad_zip(tmp_path / "broken.3mf")
+
+    monkeypatch.setattr(app, "ensure_orca", lambda *a, **k: Path("/fake/orca"))
+    monkeypatch.setattr(app, "orca_version", lambda binary: None)
+
+    def no_profiles(*args: object, **kwargs: object) -> dict[str, str]:
+        raise ProfileNotFoundError("profiles missing")
+
+    monkeypatch.setattr(app, "resolve_profiles", no_profiles)
+
+    code = app.main([str(tmp_path)])
+    assert code == 1
+
+
+def test_run_slice_flow(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    source = tmp_path / "part.stl"
+    source.write_text("mesh", encoding="utf-8")
+    sliced = factories.make_sliced_3mf(tmp_path / "sliced_out.3mf", used_g=42.0, used_m=13.86)
+
+    monkeypatch.setattr(app, "ensure_orca", lambda *a, **k: Path("/fake/orca"))
+    monkeypatch.setattr(app, "orca_version", lambda binary: "2.4.2")
+    monkeypatch.setattr(
+        app, "resolve_profiles", lambda *a, **k: {"machine": "m", "process": "p", "filament": "f"}
+    )
+    monkeypatch.setattr(app, "run_slice", lambda *a, **k: SliceResult(True, sliced, "log", 1))
+
+    code = app.main([str(source)])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "42.00" in out
+    assert "part.stl" in out
+
+
+def test_output_written_to_file(tmp_path: Path) -> None:
+    model = factories.make_sliced_3mf(tmp_path / "model_sliced.3mf", used_g=55.0, used_m=18.0)
+    out_file = tmp_path / "report.json"
+    code = app.main([str(model), "-o", str(out_file)])
+    assert code == 0
+    data = json.loads(out_file.read_text(encoding="utf-8"))
+    assert data["total_g"] == pytest.approx(55.0)
+    assert data["files"][0]["name"] == "model_sliced.3mf"
+
+
+def test_output_csv_extension(tmp_path: Path) -> None:
+    model = factories.make_sliced_3mf(tmp_path / "model_sliced.3mf")
+    out_file = tmp_path / "report.csv"
+    code = app.main([str(model), "-o", str(out_file)])
+    assert code == 0
+    assert out_file.read_bytes().startswith(b"\xef\xbb\xbf")
+
+
+def test_force_slice_calls_slicer(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    model = factories.make_sliced_3mf(tmp_path / "already_sliced.3mf", used_g=1.0, used_m=0.3)
+    sliced = factories.make_sliced_3mf(tmp_path / "again_sliced.3mf", used_g=2.0, used_m=0.6)
+
+    monkeypatch.setattr(app, "ensure_orca", lambda *a, **k: Path("/fake/orca"))
+    monkeypatch.setattr(app, "orca_version", lambda binary: None)
+    monkeypatch.setattr(
+        app, "resolve_profiles", lambda *a, **k: {"machine": "m", "process": "p", "filament": "f"}
+    )
+    calls: list[object] = []
+
+    def fake_slice(*args: object, **kwargs: object) -> SliceResult:
+        calls.append(args)
+        return SliceResult(True, sliced, "log", 1)
+
+    monkeypatch.setattr(app, "run_slice", fake_slice)
+
+    code = app.main([str(model), "--force-slice"])
+    assert code == 0
+    assert len(calls) == 1
+
+
+def test_use_project_settings_skips_profiles(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "part.stl"
+    source.write_text("mesh", encoding="utf-8")
+    sliced = factories.make_sliced_3mf(tmp_path / "out_sliced.3mf", used_g=3.0, used_m=0.9)
+
+    monkeypatch.setattr(app, "ensure_orca", lambda *a, **k: Path("/fake/orca"))
+    monkeypatch.setattr(app, "orca_version", lambda binary: None)
+
+    def must_not_call(*args: object, **kwargs: object) -> dict[str, str]:
+        raise AssertionError("resolve_profiles must not be called with --use-project-settings")
+
+    monkeypatch.setattr(app, "resolve_profiles", must_not_call)
+    monkeypatch.setattr(app, "run_slice", lambda *a, **k: SliceResult(True, sliced, "log", 1))
+
+    code = app.main([str(source), "--use-project-settings"])
+    assert code == 0
+
+
+def test_standalone_gcode_file(tmp_path: Path) -> None:
+    gcode = factories.make_gcode_file(tmp_path / "part.gcode")
+    code = app.main([str(gcode)])
+    assert code == 0
