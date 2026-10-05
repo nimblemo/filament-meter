@@ -289,7 +289,7 @@ OrcaSlicer build is downloaded automatically (no admin rights required).
 touching any model. A real example on Windows:
 
 ```text
-filament-meter 0.2.1
+filament-meter 0.3.0
 python: 3.12.14
 platform: windows
 cache dir: C:\Users\mikhe\AppData\Local\filament-meter\Cache\orca

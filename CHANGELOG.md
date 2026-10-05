@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-06
+
+### Added
+
+- An [Agent Skills](https://agentskills.io/specification.md)-compliant skill
+  under `skills/filament-meter/` documenting the package's installation order
+  (`SKILL.md`) and full CLI command reference (`references/commands.md`).
+
 ## [0.2.1] - 2026-10-06
 
 ### Fixed
@@ -59,7 +67,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI matrix (Python 3.11 / 3.12 / 3.13) and OIDC-based PyPI release
   workflow.
 
-[Unreleased]: https://github.com/nimblemo/filament-meter/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/nimblemo/filament-meter/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/nimblemo/filament-meter/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/nimblemo/filament-meter/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/nimblemo/filament-meter/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/nimblemo/filament-meter/releases/tag/v0.1.0
