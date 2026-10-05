@@ -21,7 +21,7 @@ from filament_meter.slicer import SliceResult
 def test_version(capsys: pytest.CaptureFixture[str]) -> None:
     code = app.main(["--version"])
     assert code == 0
-    assert "filament-meter 0.2.0" in capsys.readouterr().out
+    assert "filament-meter 0.2.1" in capsys.readouterr().out
 
 
 def test_no_path_is_usage_error(capsys: pytest.CaptureFixture[str]) -> None:

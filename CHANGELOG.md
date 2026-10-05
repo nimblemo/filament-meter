@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-06
+
+### Fixed
+
+- Removed the OrcaSlicer `--version` probe, which (on Windows, where the
+  executable is a GUI application) dumped the full usage/help text — plus
+  `setup params error` — to the parent console on every run. The version is
+  now read from the `VERSION` marker file written next to provisioned
+  builds; a system install reports `unknown`.
+
 ## [0.2.0] - 2026-10-06
 
 ### Added
@@ -49,6 +59,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI matrix (Python 3.11 / 3.12 / 3.13) and OIDC-based PyPI release
   workflow.
 
-[Unreleased]: https://github.com/nimblemo/filament-meter/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/nimblemo/filament-meter/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/nimblemo/filament-meter/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/nimblemo/filament-meter/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/nimblemo/filament-meter/releases/tag/v0.1.0
