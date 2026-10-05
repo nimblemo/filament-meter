@@ -439,19 +439,40 @@ Releases are fully automated via GitHub Actions (`.github/workflows/`):
 
 ### One-time setup: register the trusted publisher on PyPI
 
-1. Reserve the project name `filament-meter` on
-   [PyPI](https://pypi.org/manage/projects/publish/).
-2. Register the workflow as a *trusted publisher* on
-   <https://pypi.org/manage/account/publishing/> with owner `nimblemo`,
-   repository `filament-meter`, workflow `release.yml`, environment
-   `pypi`. Repeat on TestPyPI with environment `testpypi`.
-3. Create the matching `pypi` and `testpypi` environments in GitHub.
+The `pypi` and `testpypi` environments referenced by `release.yml` are
+already configured in this repository.
+
+1. Add a *pending publisher* on PyPI at
+   <https://pypi.org/manage/account/publishing/> with:
+   - **PyPI project name**: `filament-meter`
+   - **Owner**: `nimblemo`
+   - **Repository**: `filament-meter`
+   - **Workflow filename**: `release.yml`
+   - **Environment name**: `pypi`
+2. *(Optional)* Repeat on TestPyPI
+   (<https://test.pypi.org/manage/account/publishing/>) with environment
+   `testpypi` if you want a dry-run target.
+
+A pending publisher **creates the project on the first successful upload**;
+it does not reserve the name in advance, so publish soon after registering
+it. No API tokens are stored in GitHub secrets.
 
 ### Cutting a release
 
 1. Bump `version` in `pyproject.toml` and `src/filament_meter/__init__.py`.
+   This is **not** needed for the initial `v0.1.0` — the tree already
+   carries that version.
 2. Add `.release-notes/vX.Y.Z.md` and update `CHANGELOG.md`.
-3. Commit, push, and publish a GitHub Release tagged `vX.Y.Z`.
+3. Commit, push, and publish a GitHub Release tagged `vX.Y.Z` against
+   `main`. `release.yml` builds the wheel, smoke-tests it and uploads it to
+   PyPI.
+
+For a manual upload instead of CI, use a PyPI API token:
+
+```bash
+uv build
+UV_PUBLISH_TOKEN=<your-token> uv publish dist/*
+```
 
 ***
 
